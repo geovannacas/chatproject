@@ -45,6 +45,7 @@ def gerenciar_cliente(conn, addr):
         clientes[username] = conn
 
     print(f"[NOVA CONEXÃO] {username} ({addr}) conectado.")
+    print(f"[SERVIDOR] {len(clientes)} clientes conectados, {len(grupos)} grupos criados")
     # conn.sendall("INFO|Conectado com sucesso.".encode('utf-8'))
 
     try:

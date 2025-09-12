@@ -1,42 +1,126 @@
-import socket
+# server.py
+import asyncio
+import json
+import struct
+import base64
+import uuid
+from datetime import datetime
 
-# Define o endereço IP do host e a porta
-# '127.0.0.1' é o endereço de loopback (localhost), ou seja, sua própria máquina.
-HOST = '127.0.0.1'
-PORT = 65432  # Porta acima de 1023 para não exigir privilégio de administrador
+# In-memory maps (basic). For scaling você usaria Redis/shared state.
+USERS = {}      # username -> writer
+GROUPS = {}     # group_name -> set(usernames)
+OFFLINE_MESSAGES = {}  # username -> [msg...]
 
-# socket.socket() cria um objeto socket.
-# AF_INET especifica que usaremos o protocolo IPv4.
-# SOCK_STREAM especifica que usaremos o protocolo TCP.
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    # s.bind() associa o socket a um endereço IP e porta específicos.
-    s.bind((HOST, PORT))
+# framing helpers
+async def read_message(reader: asyncio.StreamReader):
+    header = await reader.readexactly(4)
+    length = struct.unpack(">I", header)[0]
+    data = await reader.readexactly(length)
+    return json.loads(data.decode())
 
-    # s.listen() coloca o socket em modo de escuta, aguardando conexões de clientes.
-    s.listen()
-    print(f"Servidor ouvindo em {HOST}:{PORT}")
+async def send_message(writer: asyncio.StreamWriter, obj):
+    data = json.dumps(obj).encode()
+    writer.write(struct.pack(">I", len(data)))
+    writer.write(data)
+    await writer.drain()
 
-    # s.accept() bloqueia a execução e espera por uma conexão.
-    # Quando um cliente se conecta, ele retorna um novo objeto de socket (conn)
-    # e o endereço do cliente (addr).
-    conn, addr = s.accept()
-    with conn:
-        print(f"Conectado por {addr}")
+async def handle_client(reader, writer):
+    peer = writer.get_extra_info("peername")
+    username = None
+    try:
+        # first message should be auth
+        msg = await read_message(reader)
+        if msg.get("type") != "auth" or "username" not in msg:
+            await send_message(writer, {"type":"error","reason":"auth required"})
+            writer.close()
+            await writer.wait_closed()
+            return
 
-        # Loop para receber dados do cliente
+        username = msg["username"]
+        if username in USERS:
+            await send_message(writer, {"type":"error","reason":"username_taken"})
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        USERS[username] = writer
+        print(f"{username} connected from {peer}")
+        # deliver any offline messages
+        queue = OFFLINE_MESSAGES.pop(username, [])
+        for m in queue:
+            await send_message(writer, m)
+
+        # event loop for client messages
         while True:
-            # conn.recv(1024) lê os dados recebidos do cliente.
-            # 1024 é o tamanho do buffer em bytes.
-            data = conn.recv(1024)
-
-            # Se recv() retornar um objeto de bytes vazio, o cliente fechou a conexão.
-            if not data:
+            msg = await read_message(reader)
+            mtype = msg.get("type")
+            if mtype == "private":
+                to = msg.get("to")
+                msg_record = {"type":"private","from":username,"to":to,"text":msg.get("text"),"ts":datetime.utcnow().isoformat()}
+                if to in USERS:
+                    await send_message(USERS[to], msg_record)
+                    await send_message(writer, {"type":"ack","for":msg_record})
+                else:
+                    # store offline
+                    OFFLINE_MESSAGES.setdefault(to, []).append(msg_record)
+                    await send_message(writer, {"type":"info","msg":"recipient_offline_stored"})
+            elif mtype == "create_group":
+                g = msg.get("group")
+                members = set(msg.get("members", []))
+                members.add(username)
+                GROUPS[g] = members
+                await send_message(writer, {"type":"info","msg":f"group {g} created"})
+            elif mtype == "group":
+                g = msg.get("group")
+                if g not in GROUPS:
+                    await send_message(writer, {"type":"error","reason":"no_such_group"})
+                    continue
+                msg_record = {"type":"group","from":username,"group":g,"text":msg.get("text"),"ts":datetime.utcnow().isoformat()}
+                for member in GROUPS[g]:
+                    if member == username: continue
+                    if member in USERS:
+                        await send_message(USERS[member], msg_record)
+                    else:
+                        OFFLINE_MESSAGES.setdefault(member, []).append(msg_record)
+            elif mtype == "file_init":
+                # forward to recipient(s) the metadata
+                to = msg.get("to")
+                file_id = msg.get("file_id") or str(uuid.uuid4())
+                msg_meta = {"type":"file_init","from":username,"to":to,"filename":msg.get("filename"),"filesize":msg.get("filesize"),"file_id":file_id}
+                if to in USERS:
+                    await send_message(USERS[to], msg_meta)
+                else:
+                    OFFLINE_MESSAGES.setdefault(to, []).append(msg_meta)
+                await send_message(writer, {"type":"info","msg":"file_init_received","file_id":file_id})
+            elif mtype == "file_chunk":
+                to = msg.get("to")
+                # simply forward chunk
+                if to in USERS:
+                    await send_message(USERS[to], msg)
+                else:
+                    OFFLINE_MESSAGES.setdefault(to, []).append(msg)
+            elif mtype == "quit":
                 break
+            else:
+                await send_message(writer, {"type":"error","reason":"unknown_type"})
+    except (asyncio.IncompleteReadError, ConnectionResetError):
+        pass
+    finally:
+        if username:
+            USERS.pop(username, None)
+            print(f"{username} disconnected")
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except:
+            pass
 
-            # A mensagem chega como bytes, então a decodificamos para string.
-            mensagem_cliente = data.decode('utf-8')
-            print(f"Cliente: {mensagem_cliente}")
+async def main(host='192.168.5.35', port=5000):
+    server = await asyncio.start_server(handle_client, host, port)
+    addr = server.sockets[0].getsockname()
+    print(f"Serving on {addr}")
+    async with server:
+        await server.serve_forever()
 
-            # conn.sendall() envia uma resposta de volta para o cliente.
-            # A mensagem deve ser codificada para bytes.
-            conn.sendall(b'Mensagem recebida pelo servidor!')
+if __name__ == "__main__":
+    asyncio.run(main())

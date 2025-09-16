@@ -1,17 +1,17 @@
 # servidor.py
-import socket
-import threading
-import os
+import socket       # Biblioteca padrão para comunicação de rede (sockets)
+import threading    # Módulo para gerenciar threads (execução de tarefas em paralelo)
+import os           # Módulo para interagir com o sistema operacional (caminhos de arquivo, etc.)
 
-HOST = '192.168.5.65'  # Use o IP da sua máquina na rede local
+HOST = '10.1.5.60'  # Use o IP da sua máquina na rede local. Como saber? ipconfig no terminal
 PORT = 65432
 
-clientes = {}  # {username: conn}
-grupos = {}  # {group: [members]}
-lock = threading.Lock()
+clientes = {}           # {username: conn} Dicionário para mapear nomes de usuários para suas conexões (sockets)
+grupos = {}             # {group: [members]} - Dicionário para armazenar os membros de cada grupo
+lock = threading.Lock() # Objeto de bloqueio (lock) para sincronização, garantindo que o acesso
+                        # a recursos compartilhados (como os dicionários 'clientes' e 'grupos')
+                        # seja seguro em ambientes com múltiplas threads
 
-
-# --- Auxiliares ---
 def remover_cliente(username, conn):
     """ Remove cliente da lista e dos grupos """
     with lock:
@@ -28,8 +28,9 @@ def remover_cliente(username, conn):
 
 def broadcast(mensagem, ignorar=None):
     """ Envia mensagem a todos """
-    with lock:
-        # Cria uma cópia para evitar problemas se a lista de clientes for modificada durante a iteração
+    # Garante que o dicionário de clientes não seja modificado durante a iteração 
+    # Criando uma copia da lista de clientes
+    with lock: 
         for user, conn in list(clientes.items()):
             if user != ignorar:
                 try:
@@ -43,6 +44,8 @@ def gerenciar_cliente(conn, addr):
     username = None
     while True:
         try:
+            # Loop para autenticação do nome de usuário
+            # Só pode ter um unico username
             username_candidato = conn.recv(1024).decode('utf-8')
             if not username_candidato:
                 print(f"[INFO] Conexão de {addr} encerrada antes de definir usuário.")
@@ -73,12 +76,14 @@ def gerenciar_cliente(conn, addr):
             partes = msg.split('|')
             comando = partes[0]
 
-            # (O resto do código de if/elif para comandos permanece o mesmo)
             if comando == "MSG":
+                # Lida com mensagens privadas e de grup
                 destino, conteudo = partes[1], '|'.join(partes[2:])
-                if destino in clientes:  # privado
+                if destino in clientes:
+                    # Envia a mensagem para outro cliente
                     clientes[destino].sendall(f"MSG_PRIVADA|{username}|{conteudo}".encode('utf-8'))
-                elif destino in grupos:  # grupo
+                elif destino in grupos:
+                    # Envia a mensagem para cada membro do grupo
                     for membro in grupos[destino]:
                         if membro != username:
                             clientes[membro].sendall(f"MSG_GRUPO|{destino}|{username}|{conteudo}".encode('utf-8'))
@@ -86,7 +91,9 @@ def gerenciar_cliente(conn, addr):
                     conn.sendall(f"ERRO|Destino '{destino}' não encontrado.".encode('utf-8'))
 
             elif comando == "CRIAR_GRUPO":
+                # Par criar grupos
                 nome = partes[1]
+                # verifica se o grupo já existe
                 if nome not in grupos:
                     grupos[nome] = [username]
                     broadcast(f"INFO|Grupo {nome} criado por {username}")
@@ -148,6 +155,7 @@ def gerenciar_cliente(conn, addr):
                     dados = b""
                     bytes_recebidos = 0
                     while bytes_recebidos < tamanho:
+                        # Recebe os dados do arquivo em pedaços do cliente
                         pacote = conn.recv(min(4096, tamanho - bytes_recebidos))
                         if not pacote:
                             raise ConnectionError("Conexão encerrada no meio do envio")
@@ -155,9 +163,11 @@ def gerenciar_cliente(conn, addr):
                         bytes_recebidos += len(pacote)
 
                     if destino in clientes:
+                        # Se o destino é um usuário, retransmite a metainformação e os dados binários
                         clientes[destino].sendall(f"FILE_TRANSFER|{username}|{nome_arquivo}|{tamanho}".encode('utf-8'))
                         clientes[destino].sendall(dados)
                     elif destino in grupos:
+                        # Se o destino é um grupo, retransmite para cada membr
                         for membro in grupos[destino]:
                             if membro != username:
                                 clientes[membro].sendall(
@@ -185,7 +195,10 @@ def iniciar_servidor():
     servidor.listen()
     print(f"[SERVIDOR] Escutando em {HOST}:{PORT}")
     while True:
+        # Aceita uma nova conexão
         conn, addr = servidor.accept()
+        # Cria e inicia uma nova thread para gerenciar a conexão com o cliente recém-conectado
+        # Isso permite que o servidor lide com múltiplos clientes simultaneamente
         threading.Thread(target=gerenciar_cliente, args=(conn, addr), daemon=True).start()
 
 

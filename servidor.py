@@ -3,12 +3,13 @@ import socket
 import threading
 import os
 
-HOST = '10.1.5.60'
+HOST = '192.168.5.65'  # Use o IP da sua máquina na rede local
 PORT = 65432
 
-clientes = {}   # {username: conn}
-grupos = {}     # {group: [members]}
+clientes = {}  # {username: conn}
+grupos = {}  # {group: [members]}
 lock = threading.Lock()
+
 
 # --- Auxiliares ---
 def remover_cliente(username, conn):
@@ -19,34 +20,50 @@ def remover_cliente(username, conn):
             if username in membros:
                 membros.remove(username)
     print(f"[INFO] {username} desconectado.")
-    conn.close()
+    try:
+        conn.close()
+    except:
+        pass
+
 
 def broadcast(mensagem, ignorar=None):
     """ Envia mensagem a todos """
     with lock:
-        for user, conn in clientes.items():
+        # Cria uma cópia para evitar problemas se a lista de clientes for modificada durante a iteração
+        for user, conn in list(clientes.items()):
             if user != ignorar:
                 try:
                     conn.sendall(mensagem.encode('utf-8'))
                 except:
                     remover_cliente(user, conn)
 
+
 # --- Lógica Cliente ---
 def gerenciar_cliente(conn, addr):
+    username = None
     while True:
-        username = conn.recv(1024).decode('utf-8')
-        with lock:
-            if username in clientes:
-                conn.sendall(f"O nome escolhido '{username}' já está em uso, por favor escolher outro nome".encode('utf-8'))
-            else:
-                clientes[username] = conn
-                conn.sendall("NOME_OK".encode('utf-8'))
-                break
-        clientes[username] = conn
+        try:
+            username_candidato = conn.recv(1024).decode('utf-8')
+            if not username_candidato:
+                print(f"[INFO] Conexão de {addr} encerrada antes de definir usuário.")
+                return
+            with lock:
+                if username_candidato in clientes:
+                    conn.sendall(
+                        f"O nome escolhido '{username_candidato}' já está em uso, por favor escolher outro nome".encode(
+                            'utf-8'))
+                else:
+                    username = username_candidato  # Define o username final
+                    clientes[username] = conn
+                    conn.sendall("NOME_OK".encode('utf-8'))
+                    break
+        except ConnectionResetError:
+            print(f"[INFO] Conexão de {addr} resetada durante a definição do nome.")
+            conn.close()
+            return
 
     print(f"[NOVA CONEXÃO] {username} ({addr}) conectado.")
     print(f"[SERVIDOR] {len(clientes)} clientes conectados, {len(grupos)} grupos criados")
-    # conn.sendall("INFO|Conectado com sucesso.".encode('utf-8'))
 
     try:
         while True:
@@ -56,6 +73,7 @@ def gerenciar_cliente(conn, addr):
             partes = msg.split('|')
             comando = partes[0]
 
+            # (O resto do código de if/elif para comandos permanece o mesmo)
             if comando == "MSG":
                 destino, conteudo = partes[1], '|'.join(partes[2:])
                 if destino in clientes:  # privado
@@ -87,7 +105,8 @@ def gerenciar_cliente(conn, addr):
                 user_add, grupo = partes[1], partes[2]
                 if grupo in grupos and username in grupos[grupo] and user_add in clientes:
                     grupos[grupo].append(user_add)
-                    clientes[user_add].sendall(f"INFO|Você foi adicionado no grupo {grupo} por {username}".encode('utf-8'))
+                    clientes[user_add].sendall(
+                        f"INFO|Você foi adicionado no grupo {grupo} por {username}".encode('utf-8'))
                 else:
                     conn.sendall("ERRO|Falha ao adicionar.".encode('utf-8'))
 
@@ -122,36 +141,42 @@ def gerenciar_cliente(conn, addr):
                 break
 
             elif comando == "ARQUIVO":
-                destino, nome_arquivo, tamanho = partes[1], partes[2], int(partes[3])
-                conn.sendall("OK_ARQUIVO".encode('utf-8'))
-
-                dados = b""
                 try:
-                    while len(dados) < tamanho:
-                        pacote = conn.recv(min(4096, tamanho - len(dados)))
+                    destino, nome_arquivo, tamanho = partes[1], partes[2], int(partes[3])
+                    conn.sendall("OK_ARQUIVO".encode('utf-8'))
+
+                    dados = b""
+                    bytes_recebidos = 0
+                    while bytes_recebidos < tamanho:
+                        pacote = conn.recv(min(4096, tamanho - bytes_recebidos))
                         if not pacote:
                             raise ConnectionError("Conexão encerrada no meio do envio")
                         dados += pacote
+                        bytes_recebidos += len(pacote)
 
-                    # repassa para o destino
                     if destino in clientes:
                         clientes[destino].sendall(f"FILE_TRANSFER|{username}|{nome_arquivo}|{tamanho}".encode('utf-8'))
                         clientes[destino].sendall(dados)
                     elif destino in grupos:
                         for membro in grupos[destino]:
                             if membro != username:
-                                clientes[membro].sendall(f"FILE_TRANSFER|{username}|{nome_arquivo}|{tamanho}".encode('utf-8'))
+                                clientes[membro].sendall(
+                                    f"FILE_TRANSFER|{username}|{nome_arquivo}|{tamanho}".encode('utf-8'))
                                 clientes[membro].sendall(dados)
 
                     conn.sendall("ARQUIVO_OK".encode('utf-8'))
-
                 except Exception as e:
+                    print(f"[ERRO ARQUIVO] com {username}: {e}")
                     conn.sendall(f"ERRO|Falha ao transferir arquivo: {e}".encode('utf-8'))
 
+    except ConnectionResetError:
+        print(f"[INFO] {username} desconectou abruptamente.")
     except Exception as e:
         print(f"[ERRO] {username}: {e}")
     finally:
-        remover_cliente(username, conn)
+        if username:
+            remover_cliente(username, conn)
+
 
 # --- Iniciar Servidor ---
 def iniciar_servidor():
@@ -162,6 +187,7 @@ def iniciar_servidor():
     while True:
         conn, addr = servidor.accept()
         threading.Thread(target=gerenciar_cliente, args=(conn, addr), daemon=True).start()
+
 
 if __name__ == "__main__":
     iniciar_servidor()

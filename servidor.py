@@ -23,8 +23,8 @@ def remover_cliente(username, conn):
     try:
         conn.close()
     except:
-        pas
-
+        pass
+    
 def broadcast(mensagem, ignorar=None):
     """ Envia mensagem a todos """
     # Garante que o dicionário de clientes não seja modificado durante a iteração 

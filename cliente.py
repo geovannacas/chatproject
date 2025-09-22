@@ -213,7 +213,7 @@ def handle_acoes(username, cliente):
             break
 
 def iniciar_cliente():
-    HOST = '192.168.0.7'
+    HOST = '192.168.6.237'
     PORT = 65432
 
     cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

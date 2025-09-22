@@ -3,7 +3,7 @@ import socket       # Biblioteca padrão para comunicação de rede (sockets)
 import threading    # Módulo para gerenciar threads (execução de tarefas em paralelo)
 import os           # Módulo para interagir com o sistema operacional (caminhos de arquivo, etc.)
 
-HOST = '172.16.25.37'  # Use o IP da sua máquina na rede local. Como saber? ipconfig no terminal
+HOST = '192.168.0.7'  # Use o IP da sua máquina na rede local. Como saber? ipconfig no terminal
 PORT = 65432
 
 clientes = {}           # {username: conn} Dicionário para mapear nomes de usuários para suas conexões (sockets)
@@ -24,7 +24,7 @@ def remover_cliente(username, conn):
         conn.close()
     except:
         pass
-    
+
 def broadcast(mensagem, ignorar=None):
     """ Envia mensagem a todos """
     # Garante que o dicionário de clientes não seja modificado durante a iteração 
@@ -234,7 +234,7 @@ def handle_acoes(username, conn):
 
 # --- Lógica Cliente ---
 def gerenciar_cliente(conn, addr):
-    username = handle_usuario(username, addr, conn)
+    username = handle_usuario( addr, conn)
     print(f"[NOVA CONEXÃO] {username} ({addr}) conectado.")
     print(f"[SERVIDOR] {len(clientes)} clientes conectados, {len(grupos)} grupos criados")
     try:

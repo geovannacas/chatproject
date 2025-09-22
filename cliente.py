@@ -8,6 +8,20 @@ import time         # Módulo para funções relacionadas ao tempo
 # É útil para sincronização entre threads, avisando uma thread que algo aconteceu
 file_transfer_in_progress = threading.Event()
 
+def menu_acoes():
+    print("\n--- Comandos ---")
+    print("  msg <usuario|grupo> <mensagem>             - Enviar mensagem")
+    print("  criar <grupo>                              - Criar grupo")
+    print("  entrar <grupo>                             - Entrar em grupo")
+    print("  add <usuario> <grupo>                      - Adicionar usuário em grupo")
+    print("  membros <grupo>                            - Listar membros de grupo")
+    print("  sairgrupo <grupo>                          - Sair de grupo")
+    print("  apagargrupo <grupo>                        - Apagar grupo")
+    print("  arquivo <destino> \"<caminho arquivo>\"*   - Enviar arquivo")
+    print("  listar                                     - Listar usuários e grupos")
+    print("  sair                                       - Desconectar")
+    print("  help                                       - Menu de ações\n")
+    print("\n* Use aspas se o caminho tiver espaços \n")
 
 def receber_mensagens(cliente_socket):
     """ Recebe mensagens do servidor em loop """
@@ -69,7 +83,6 @@ def receber_mensagens(cliente_socket):
             print(f"\n[ERRO] Erro ao receber mensagem: {e}")
             break
 
-
 def receber_arquivo(sock, nome_arquivo, tamanho_arquivo):
     """ Salva o arquivo recebido do servidor """
     try:
@@ -95,7 +108,6 @@ def receber_arquivo(sock, nome_arquivo, tamanho_arquivo):
         print(f"[INFO] Arquivo '{nome_arquivo}' salvo em 'recebidos/'.")
     except Exception as e:
         print(f"[ERRO] Falha ao receber o arquivo: {e}")
-
 
 def enviar_arquivo_servidor(sock, destinatario, caminho_arquivo):
     """ Envia um arquivo para o servidor """
@@ -145,56 +157,18 @@ def enviar_arquivo_servidor(sock, destinatario, caminho_arquivo):
         # de mensagens volte a funcionar normalmente
         file_transfer_in_progress.clear()
 
-
-def iniciar_cliente():
-    """ Conecta ao servidor e gerencia comandos do usuário """
-    HOST = '10.1.5.60'   # Lembre-se de usar o IP correto do servidor. Como saber? ipconfig no bash
-    PORT = 65432            # Tem que ser a mesma porta do servidor
-
-    cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        cliente.connect((HOST, PORT))
-    except Exception as e:
-        print(f"[ERRO] Não foi possível conectar: {e}")
-        return
-
+def create_usuario(cliente):
     while True:
         username = input("Digite seu nome de usuário: ")
         cliente.sendall(username.encode('utf-8'))
         resposta = cliente.recv(1024).decode('utf-8')
         if resposta == "NOME_OK":
-            break
+            return username
         else:
             print(f"{resposta}")
 
-    # Cria e inicia uma nova thread para receber mensagens do servidor em segundo plano
-    # O 'daemon=True' garante que a thread será encerrada quando o programa principal terminar
-    threading.Thread(target=receber_mensagens, args=(cliente,), daemon=True).start()
-
-    print("\n--- Comandos ---")
-    # ... (o print dos comandos continua o mesmo)
-    print("  msg <usuario|grupo> <mensagem>             - Enviar mensagem")
-    print("  criar <grupo>                              - Criar grupo")
-    print("  entrar <grupo>                             - Entrar em grupo")
-    print("  add <usuario> <grupo>                      - Adicionar usuário em grupo")
-    print("  membros <grupo>                            - Listar membros de grupo")
-    print("  sairgrupo <grupo>                          - Sair de grupo")
-    print("  apagargrupo <grupo>                        - Apagar grupo")
-    print("  arquivo <destino> \"<caminho arquivo>\"*   - Enviar arquivo")
-    print("  listar                                     - Listar usuários e grupos")
-    print("  sair                                       - Desconectar\n")
-    print("\n* Use aspas se o caminho tiver espaços \n")
-
-    while True:
-        # Loop principal para ler comandos do usuário e enviá-los ao servidor
-        entrada = input(f"[{username}]> ").strip()
-        if not entrada: continue
-
-        partes = entrada.split(' ', 2)
-        comando = partes[0].lower()
-
-        try:
-            if comando == "arquivo" and len(partes) >= 3:
+def switch_acoes(comando, partes, cliente):
+    if comando == "arquivo" and len(partes) >= 3:
                 # Lida com o comando de envio de arquivo
                 caminho_arquivo = partes[2]
                 if caminho_arquivo.startswith('"') and caminho_arquivo.endswith('"'):
@@ -204,39 +178,76 @@ def iniciar_cliente():
                     enviar_arquivo_servidor(cliente, partes[1], caminho_arquivo)
                 else:
                     print(f"[ERRO] Arquivo '{caminho_arquivo}' não encontrado.")
-            elif comando == "msg" and len(partes) == 3:
-                # Envia uma mensagem para um usuário ou grupo
-                cliente.sendall(f"MSG|{partes[1]}|{partes[2]}".encode('utf-8'))
-            elif comando == "criar" and len(partes) == 2:
-                # Envia um comando para criar um grupo
-                cliente.sendall(f"CRIAR_GRUPO|{partes[1]}".encode('utf-8'))
-            elif comando == "entrar" and len(partes) == 2:
-                # Envia um comando para entrar em um grupo
-                cliente.sendall(f"ENTRAR_GRUPO|{partes[1]}".encode('utf-8'))
-            elif comando == "add" and len(partes) == 3:
-                # Envia um comando para adicionar um usuário em um grupo
-                cliente.sendall(f"ADD_GRUPO|{partes[1]}|{partes[2]}".encode('utf-8'))
-            elif comando == "membros" and len(partes) == 2:
-                # Envia um comando para listar os membros de um grupo
-                cliente.sendall(f"MEMBROS|{partes[1]}".encode('utf-8'))
-            elif comando == "sairgrupo" and len(partes) == 2:
-                # Envia um comando para sair de um grupo
-                cliente.sendall(f"SAIR_GRUPO|{partes[1]}".encode('utf-8'))
-            elif comando == "apagargrupo" and len(partes) == 2:
-                # Envia um comando para apagar um grupo
-                cliente.sendall(f"APAGAR_GRUPO|{partes[1]}".encode('utf-8'))
-            elif comando == "listar":
-                # Envia um comando para listar usuários e grupos
-                cliente.sendall("LISTAR|".encode('utf-8'))
-            elif comando == "sair":
-                # Envia um comando para sair do chat
-                cliente.sendall("SAIR|".encode('utf-8'))
+    elif comando == "msg" and len(partes) == 3:
+        # Envia uma mensagem para um usuário ou grupo
+        cliente.sendall(f"MSG|{partes[1]}|{partes[2]}".encode('utf-8'))
+    elif comando == "criar" and len(partes) == 2:
+        # Envia um comando para criar um grupo
+        cliente.sendall(f"CRIAR_GRUPO|{partes[1]}".encode('utf-8'))
+    elif comando == "entrar" and len(partes) == 2:
+        # Envia um comando para entrar em um grupo
+        cliente.sendall(f"ENTRAR_GRUPO|{partes[1]}".encode('utf-8'))
+    elif comando == "add" and len(partes) == 3:
+        # Envia um comando para adicionar um usuário em um grupo
+        cliente.sendall(f"ADD_GRUPO|{partes[1]}|{partes[2]}".encode('utf-8'))
+    elif comando == "membros" and len(partes) == 2:
+        # Envia um comando para listar os membros de um grupo
+        cliente.sendall(f"MEMBROS|{partes[1]}".encode('utf-8'))
+    elif comando == "sairgrupo" and len(partes) == 2:
+        # Envia um comando para sair de um grupo
+        cliente.sendall(f"SAIR_GRUPO|{partes[1]}".encode('utf-8'))
+    elif comando == "apagargrupo" and len(partes) == 2:
+        # Envia um comando para apagar um grupo
+        cliente.sendall(f"APAGAR_GRUPO|{partes[1]}".encode('utf-8'))
+    elif comando == "listar":
+        # Envia um comando para listar usuários e grupos
+        cliente.sendall("LISTAR|".encode('utf-8'))
+    elif comando == "sair":
+        # Envia um comando para sair do chat
+        cliente.sendall("SAIR|".encode('utf-8'))
+        return "break"
+    elif comando =="help":
+        menu_acoes()
+    elif comando != "arquivo":
+        print("[ERRO] Comando inválido ou formato incorreto.")
+
+
+def handle_acoes(username, cliente):
+    while True:
+        # Loop principal para ler comandos do usuário e enviá-los ao servidor
+        entrada = input(f"[{username}]> ").strip()
+        if not entrada: continue
+
+        partes = entrada.split(' ', 2)
+        comando = partes[0].lower()
+
+        try:
+            acao=switch_acoes(comando, partes, cliente)
+            if(acao=="break"):
                 break
-            elif comando != "arquivo":
-                print("[ERRO] Comando inválido ou formato incorreto.")
         except Exception as e:
             print(f"[ERRO] {e}")
             break
+
+def iniciar_cliente():
+    """ Conecta ao servidor e gerencia comandos do usuário """
+    HOST = '192.168.0.7'
+    PORT = 65432    
+
+    cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        cliente.connect((HOST, PORT))
+    except Exception as e:
+        print(f"[ERRO] Não foi possível conectar: {e}")
+        return
+
+    username = create_usuario(cliente)
+
+    # Cria e inicia uma nova thread para receber mensagens do servidor em segundo plano
+    # O 'daemon=True' garante que a thread será encerrada quando o programa principal terminar
+    threading.Thread(target=receber_mensagens, args=(cliente,), daemon=True).start()
+    menu_acoes()
+    handle_acoes(username, cliente)
     cliente.close()
 
 

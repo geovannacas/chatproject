@@ -217,7 +217,7 @@ def handle_acoes(username, conn):
                 sair_grupo(partes, username, conn)
 
             case "APAGAR_GRUPO":
-                apagar_grupo()
+                apagar_grupo(partes, username, conn)
 
             case "LISTAR":
                 listar_usuarios_e_grupos(conn)

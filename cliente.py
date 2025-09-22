@@ -168,49 +168,65 @@ def create_usuario(cliente):
             print(f"{resposta}")
 
 def switch_acoes(comando, partes, cliente):
-    if comando == "arquivo" and len(partes) >= 3:
-                # Lida com o comando de envio de arquivo
-                caminho_arquivo = partes[2]
-                if caminho_arquivo.startswith('"') and caminho_arquivo.endswith('"'):
-                    caminho_arquivo = caminho_arquivo[1:-1]
+    match comando:
+        case "arquivo" if len(partes) >= 3:
+            # Lida com o comando de envio de arquivo
+            caminho_arquivo = partes[2]
+            if caminho_arquivo.startswith('"') and caminho_arquivo.endswith('"'):
+                caminho_arquivo = caminho_arquivo[1:-1]
 
-                if os.path.exists(caminho_arquivo):
-                    enviar_arquivo_servidor(cliente, partes[1], caminho_arquivo)
-                else:
-                    print(f"[ERRO] Arquivo '{caminho_arquivo}' não encontrado.")
-    elif comando == "msg" and len(partes) == 3:
-        # Envia uma mensagem para um usuário ou grupo
-        cliente.sendall(f"MSG|{partes[1]}|{partes[2]}".encode('utf-8'))
-    elif comando == "criar" and len(partes) == 2:
-        # Envia um comando para criar um grupo
-        cliente.sendall(f"CRIAR_GRUPO|{partes[1]}".encode('utf-8'))
-    elif comando == "entrar" and len(partes) == 2:
-        # Envia um comando para entrar em um grupo
-        cliente.sendall(f"ENTRAR_GRUPO|{partes[1]}".encode('utf-8'))
-    elif comando == "add" and len(partes) == 3:
-        # Envia um comando para adicionar um usuário em um grupo
-        cliente.sendall(f"ADD_GRUPO|{partes[1]}|{partes[2]}".encode('utf-8'))
-    elif comando == "membros" and len(partes) == 2:
-        # Envia um comando para listar os membros de um grupo
-        cliente.sendall(f"MEMBROS|{partes[1]}".encode('utf-8'))
-    elif comando == "sairgrupo" and len(partes) == 2:
-        # Envia um comando para sair de um grupo
-        cliente.sendall(f"SAIR_GRUPO|{partes[1]}".encode('utf-8'))
-    elif comando == "apagargrupo" and len(partes) == 2:
-        # Envia um comando para apagar um grupo
-        cliente.sendall(f"APAGAR_GRUPO|{partes[1]}".encode('utf-8'))
-    elif comando == "listar":
-        # Envia um comando para listar usuários e grupos
-        cliente.sendall("LISTAR|".encode('utf-8'))
-    elif comando == "sair":
-        # Envia um comando para sair do chat
-        cliente.sendall("SAIR|".encode('utf-8'))
-        return "break"
-    elif comando =="help":
-        menu_acoes()
-    elif comando != "arquivo":
-        print("[ERRO] Comando inválido ou formato incorreto.")
+            if os.path.exists(caminho_arquivo):
+                enviar_arquivo_servidor(cliente, partes[1], caminho_arquivo)
+            else:
+                print(f"[ERRO] Arquivo '{caminho_arquivo}' não encontrado.")
 
+        case "arquivo":
+            pass
+
+        case "msg" if len(partes) == 3:
+            # Envia uma mensagem para um usuário ou grupo
+            cliente.sendall(f"MSG|{partes[1]}|{partes[2]}".encode('utf-8'))
+
+        case "criar" if len(partes) == 2:
+            # Envia um comando para criar um grupo
+            cliente.sendall(f"CRIAR_GRUPO|{partes[1]}".encode('utf-8'))
+
+        case "entrar" if len(partes) == 2:
+            # Envia um comando para entrar em um grupo
+            cliente.sendall(f"ENTRAR_GRUPO|{partes[1]}".encode('utf-8'))
+
+        case "add" if len(partes) == 3:
+            # Envia um comando para adicionar um usuário em um grupo
+            cliente.sendall(f"ADD_GRUPO|{partes[1]}|{partes[2]}".encode('utf-8'))
+
+        case "membros" if len(partes) == 2:
+            # Envia um comando para listar os membros de um grupo
+            cliente.sendall(f"MEMBROS|{partes[1]}".encode('utf-8'))
+
+        case "sairgrupo" if len(partes) == 2:
+            # Envia um comando para sair de um grupo
+            cliente.sendall(f"SAIR_GRUPO|{partes[1]}".encode('utf-8'))
+
+        case "apagargrupo" if len(partes) == 2:
+            # Envia um comando para apagar um grupo
+            cliente.sendall(f"APAGAR_GRUPO|{partes[1]}".encode('utf-8'))
+
+        case "listar":
+            # Envia um comando para listar usuários e grupos
+            cliente.sendall("LISTAR|".encode('utf-8'))
+
+        case "sair":
+            # Envia um comando para sair do chat
+            cliente.sendall("SAIR|".encode('utf-8'))
+            return "break"
+
+        case "help":
+            menu_acoes()
+
+        case _:
+            # Só imprime erro quando o comando não for "arquivo" (replicando a lógica original).
+            if comando != "arquivo":
+                print("[ERRO] Comando inválido ou formato incorreto.")
 
 def handle_acoes(username, cliente):
     while True:
